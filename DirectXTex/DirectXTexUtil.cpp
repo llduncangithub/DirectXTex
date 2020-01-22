@@ -9,7 +9,7 @@
 // http://go.microsoft.com/fwlink/?LinkId=248926
 //-------------------------------------------------------------------------------------
 
-#include "directxtexp.h"
+#include "DirectXTexP.h"
 
 #if defined(_XBOX_ONE) && defined(_TITLE)
 static_assert(XBOX_DXGI_FORMAT_R10G10B10_7E3_A2_FLOAT == DXGI_FORMAT_R10G10B10_7E3_A2_FLOAT, "Xbox One XDK mismatch detected");
@@ -71,6 +71,48 @@ namespace
 
     bool g_WIC2 = false;
     IWICImagingFactory* g_Factory = nullptr;
+
+    BOOL WINAPI InitializeWICFactory(PINIT_ONCE, PVOID, PVOID *ifactory) noexcept
+    {
+    #if (_WIN32_WINNT >= _WIN32_WINNT_WIN8) || defined(_WIN7_PLATFORM_UPDATE)
+        HRESULT hr = CoCreateInstance(
+            CLSID_WICImagingFactory2,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            __uuidof(IWICImagingFactory2),
+            ifactory
+        );
+
+        if (SUCCEEDED(hr))
+        {
+            // WIC2 is available on Windows 10, Windows 8.x, and Windows 7 SP1 with KB 2670838 installed
+            g_WIC2 = true;
+            return TRUE;
+        }
+        else
+        {
+            g_WIC2 = false;
+
+            hr = CoCreateInstance(
+                CLSID_WICImagingFactory1,
+                nullptr,
+                CLSCTX_INPROC_SERVER,
+                __uuidof(IWICImagingFactory),
+                ifactory
+            );
+            return SUCCEEDED(hr) ? TRUE : FALSE;
+        }
+    #else
+        g_WIC2 = false;
+
+        return SUCCEEDED(CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            __uuidof(IWICImagingFactory),
+            ifactory)) ? TRUE : FALSE;
+    #endif
+    }
 }
 
 
@@ -79,7 +121,7 @@ namespace
 //=====================================================================================
 
 _Use_decl_annotations_
-DXGI_FORMAT DirectX::_WICToDXGI(const GUID& guid)
+DXGI_FORMAT DirectX::_WICToDXGI(const GUID& guid) noexcept
 {
     for (size_t i = 0; i < _countof(g_WICFormats); ++i)
     {
@@ -99,7 +141,7 @@ DXGI_FORMAT DirectX::_WICToDXGI(const GUID& guid)
 }
 
 _Use_decl_annotations_
-bool DirectX::_DXGIToWIC(DXGI_FORMAT format, GUID& guid, bool ignoreRGBvsBGR)
+bool DirectX::_DXGIToWIC(DXGI_FORMAT format, GUID& guid, bool ignoreRGBvsBGR) noexcept
 {
     switch (format)
     {
@@ -155,11 +197,11 @@ bool DirectX::_DXGIToWIC(DXGI_FORMAT format, GUID& guid, bool ignoreRGBvsBGR)
             break;
     }
 
-    memcpy(&guid, &GUID_NULL, sizeof(GUID));
+    memset(&guid, 0, sizeof(GUID));
     return false;
 }
 
-DWORD DirectX::_CheckWICColorSpace(_In_ const GUID& sourceGUID, _In_ const GUID& targetGUID)
+DWORD DirectX::_CheckWICColorSpace(_In_ const GUID& sourceGUID, _In_ const GUID& targetGUID) noexcept
 {
     DWORD srgb = 0;
 
@@ -180,7 +222,7 @@ DWORD DirectX::_CheckWICColorSpace(_In_ const GUID& sourceGUID, _In_ const GUID&
 
     if ((srgb & (TEX_FILTER_SRGB_IN | TEX_FILTER_SRGB_OUT)) == (TEX_FILTER_SRGB_IN | TEX_FILTER_SRGB_OUT))
     {
-        srgb &= ~(TEX_FILTER_SRGB_IN | TEX_FILTER_SRGB_OUT);
+        srgb &= ~static_cast<uint32_t>(TEX_FILTER_SRGB_IN | TEX_FILTER_SRGB_OUT);
     }
 
     return srgb;
@@ -191,7 +233,7 @@ DWORD DirectX::_CheckWICColorSpace(_In_ const GUID& sourceGUID, _In_ const GUID&
 // Public helper function to get common WIC codec GUIDs
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-REFGUID DirectX::GetWICCodec(WICCodecs codec)
+REFGUID DirectX::GetWICCodec(WICCodecs codec) noexcept
 {
     switch (codec)
     {
@@ -225,7 +267,7 @@ REFGUID DirectX::GetWICCodec(WICCodecs codec)
 //-------------------------------------------------------------------------------------
 // Singleton function for WIC factory
 //-------------------------------------------------------------------------------------
-IWICImagingFactory* DirectX::GetWICFactory(bool& iswic2)
+IWICImagingFactory* DirectX::GetWICFactory(bool& iswic2) noexcept
 {
     if (g_Factory)
     {
@@ -235,48 +277,13 @@ IWICImagingFactory* DirectX::GetWICFactory(bool& iswic2)
 
     static INIT_ONCE s_initOnce = INIT_ONCE_STATIC_INIT;
 
-    InitOnceExecuteOnce(&s_initOnce,
-        [](PINIT_ONCE, PVOID, LPVOID *factory) noexcept -> BOOL
+    if (!InitOnceExecuteOnce(&s_initOnce,
+        InitializeWICFactory,
+        nullptr,
+        reinterpret_cast<LPVOID*>(&g_Factory)))
     {
-#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8) || defined(_WIN7_PLATFORM_UPDATE)
-        HRESULT hr = CoCreateInstance(
-            CLSID_WICImagingFactory2,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            __uuidof(IWICImagingFactory2),
-            factory
-        );
-
-        if (SUCCEEDED(hr))
-        {
-            // WIC2 is available on Windows 10, Windows 8.x, and Windows 7 SP1 with KB 2670838 installed
-            g_WIC2 = true;
-            return TRUE;
-        }
-        else
-        {
-            g_WIC2 = false;
-
-            hr = CoCreateInstance(
-                CLSID_WICImagingFactory1,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                __uuidof(IWICImagingFactory),
-                factory
-            );
-            return SUCCEEDED(hr) ? TRUE : FALSE;
-        }
-#else
-        g_WIC2 = false;
-
-        return SUCCEEDED(CoCreateInstance(
-            CLSID_WICImagingFactory,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            __uuidof(IWICImagingFactory),
-            factory)) ? TRUE : FALSE;
-#endif
-    }, nullptr, reinterpret_cast<LPVOID*>(&g_Factory));
+        return nullptr;
+    }
 
     iswic2 = g_WIC2;
     return g_Factory;
@@ -286,7 +293,7 @@ IWICImagingFactory* DirectX::GetWICFactory(bool& iswic2)
 //-------------------------------------------------------------------------------------
 // Optional initializer for WIC factory
 //-------------------------------------------------------------------------------------
-void DirectX::SetWICFactory(_In_opt_ IWICImagingFactory* pWIC)
+void DirectX::SetWICFactory(_In_opt_ IWICImagingFactory* pWIC) noexcept
 {
     if (pWIC == g_Factory)
         return;
@@ -319,7 +326,7 @@ void DirectX::SetWICFactory(_In_opt_ IWICImagingFactory* pWIC)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::IsPacked(DXGI_FORMAT fmt)
+bool DirectX::IsPacked(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -338,7 +345,7 @@ bool DirectX::IsPacked(DXGI_FORMAT fmt)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::IsVideo(DXGI_FORMAT fmt)
+bool DirectX::IsVideo(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -375,7 +382,7 @@ bool DirectX::IsVideo(DXGI_FORMAT fmt)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::IsPlanar(DXGI_FORMAT fmt)
+bool DirectX::IsPlanar(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -404,7 +411,7 @@ bool DirectX::IsPlanar(DXGI_FORMAT fmt)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::IsDepthStencil(DXGI_FORMAT fmt)
+bool DirectX::IsDepthStencil(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -431,7 +438,7 @@ bool DirectX::IsDepthStencil(DXGI_FORMAT fmt)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::IsTypeless(DXGI_FORMAT fmt, bool partialTypeless)
+bool DirectX::IsTypeless(DXGI_FORMAT fmt, bool partialTypeless) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -475,7 +482,7 @@ bool DirectX::IsTypeless(DXGI_FORMAT fmt, bool partialTypeless)
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-bool DirectX::HasAlpha(DXGI_FORMAT fmt)
+bool DirectX::HasAlpha(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -538,7 +545,7 @@ bool DirectX::HasAlpha(DXGI_FORMAT fmt)
 // Returns bits-per-pixel for a given DXGI format, or 0 on failure
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-size_t DirectX::BitsPerPixel(DXGI_FORMAT fmt)
+size_t DirectX::BitsPerPixel(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -700,7 +707,7 @@ size_t DirectX::BitsPerPixel(DXGI_FORMAT fmt)
 // For mixed formats, it returns the largest color-depth in the format
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-size_t DirectX::BitsPerColor(DXGI_FORMAT fmt)
+size_t DirectX::BitsPerColor(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -866,9 +873,12 @@ size_t DirectX::BitsPerColor(DXGI_FORMAT fmt)
 // based on DXGI format, width, and height
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
-    size_t& rowPitch, size_t& slicePitch, DWORD flags)
+HRESULT DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
+    size_t& rowPitch, size_t& slicePitch, DWORD flags) noexcept
 {
+    uint64_t pitch = 0;
+    uint64_t slice = 0;
+
     switch (static_cast<int>(fmt))
     {
     case DXGI_FORMAT_BC1_TYPELESS:
@@ -883,15 +893,15 @@ void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
             {
                 size_t nbw = width >> 2;
                 size_t nbh = height >> 2;
-                rowPitch = std::max<size_t>(1, nbw * 8);
-                slicePitch = std::max<size_t>(1, rowPitch * nbh);
+                pitch = std::max<uint64_t>(1u, uint64_t(nbw) * 8u);
+                slice = std::max<uint64_t>(1u, pitch * uint64_t(nbh));
             }
             else
             {
-                size_t nbw = std::max<size_t>(1, (width + 3) / 4);
-                size_t nbh = std::max<size_t>(1, (height + 3) / 4);
-                rowPitch = nbw * 8;
-                slicePitch = rowPitch * nbh;
+                uint64_t nbw = std::max<uint64_t>(1u, (uint64_t(width) + 3u) / 4u);
+                uint64_t nbh = std::max<uint64_t>(1u, (uint64_t(height) + 3u) / 4u);
+                pitch = nbw * 8u;
+                slice = pitch * nbh;
             }
         }
         break;
@@ -917,15 +927,15 @@ void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
             {
                 size_t nbw = width >> 2;
                 size_t nbh = height >> 2;
-                rowPitch = std::max<size_t>(1, nbw * 16);
-                slicePitch = std::max<size_t>(1, rowPitch * nbh);
+                pitch = std::max<uint64_t>(1u, uint64_t(nbw) * 16u);
+                slice = std::max<uint64_t>(1u, pitch * uint64_t(nbh));
             }
             else
             {
-                size_t nbw = std::max<size_t>(1, (width + 3) / 4);
-                size_t nbh = std::max<size_t>(1, (height + 3) / 4);
-                rowPitch = nbw * 16;
-                slicePitch = rowPitch * nbh;
+                uint64_t nbw = std::max<uint64_t>(1u, (uint64_t(width) + 3u) / 4u);
+                uint64_t nbh = std::max<uint64_t>(1u, (uint64_t(height) + 3u) / 4u);
+                pitch = nbw * 16u;
+                slice = pitch * nbh;
             }
         }
         break;
@@ -934,22 +944,22 @@ void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
     case DXGI_FORMAT_G8R8_G8B8_UNORM:
     case DXGI_FORMAT_YUY2:
         assert(IsPacked(fmt));
-        rowPitch = ((width + 1) >> 1) * 4;
-        slicePitch = rowPitch * height;
+        pitch = ((uint64_t(width) + 1u) >> 1) * 4u;
+        slice = pitch * uint64_t(height);
         break;
 
     case DXGI_FORMAT_Y210:
     case DXGI_FORMAT_Y216:
         assert(IsPacked(fmt));
-        rowPitch = ((width + 1) >> 1) * 8;
-        slicePitch = rowPitch * height;
+        pitch = ((uint64_t(width) + 1u) >> 1) * 8u;
+        slice = pitch * uint64_t(height);
         break;
 
     case DXGI_FORMAT_NV12:
     case DXGI_FORMAT_420_OPAQUE:
         assert(IsPlanar(fmt));
-        rowPitch = ((width + 1) >> 1) * 2;
-        slicePitch = rowPitch * (height + ((height + 1) >> 1));
+        pitch = ((uint64_t(width) + 1u) >> 1) * 2u;
+        slice = pitch * (uint64_t(height) + ((uint64_t(height) + 1u) >> 1));
         break;
 
     case DXGI_FORMAT_P010:
@@ -958,39 +968,37 @@ void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
     case XBOX_DXGI_FORMAT_R16_UNORM_X8_TYPELESS:
     case XBOX_DXGI_FORMAT_X16_TYPELESS_G8_UINT:
         assert(IsPlanar(fmt));
-        rowPitch = ((width + 1) >> 1) * 4;
-        slicePitch = rowPitch * (height + ((height + 1) >> 1));
+        pitch = ((uint64_t(width) + 1u) >> 1) * 4u;
+        slice = pitch * (uint64_t(height) + ((uint64_t(height) + 1u) >> 1));
         break;
 
     case DXGI_FORMAT_NV11:
         assert(IsPlanar(fmt));
-        rowPitch = ((width + 3) >> 2) * 4;
-        slicePitch = rowPitch * height * 2;
+        pitch = ((uint64_t(width) + 3u) >> 2) * 4u;
+        slice = pitch * uint64_t(height) * 2u;
         break;
 
     case WIN10_DXGI_FORMAT_P208:
         assert(IsPlanar(fmt));
-        rowPitch = ((width + 1) >> 1) * 2;
-        slicePitch = rowPitch * height * 2;
+        pitch = ((uint64_t(width) + 1u) >> 1) * 2u;
+        slice = pitch * uint64_t(height) * 2u;
         break;
 
     case WIN10_DXGI_FORMAT_V208:
         assert(IsPlanar(fmt));
-        rowPitch = width;
-        slicePitch = rowPitch * (height + (((height + 1) >> 1) * 2));
+        pitch = uint64_t(width);
+        slice = pitch * (uint64_t(height) + (((uint64_t(height) + 1u) >> 1) * 2u));
         break;
 
     case WIN10_DXGI_FORMAT_V408:
         assert(IsPlanar(fmt));
-        rowPitch = width;
-        slicePitch = rowPitch * (height + ((height >> 1) * 4));
+        pitch = uint64_t(width);
+        slice = pitch * (uint64_t(height) + (uint64_t(height >> 1) * 4u));
         break;
 
     default:
-        assert(IsValid(fmt));
         assert(!IsCompressed(fmt) && !IsPacked(fmt) && !IsPlanar(fmt));
         {
-
             size_t bpp;
 
             if (flags & CP_FLAGS_24BPP)
@@ -1002,51 +1010,70 @@ void DirectX::ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height,
             else
                 bpp = BitsPerPixel(fmt);
 
+            if (!bpp)
+                return E_INVALIDARG;
+
             if (flags & (CP_FLAGS_LEGACY_DWORD | CP_FLAGS_PARAGRAPH | CP_FLAGS_YMM | CP_FLAGS_ZMM | CP_FLAGS_PAGE4K))
             {
                 if (flags & CP_FLAGS_PAGE4K)
                 {
-                    rowPitch = ((width * bpp + 32767) / 32768) * 4096;
-                    slicePitch = rowPitch * height;
+                    pitch = ((uint64_t(width) * bpp + 32767u) / 32768u) * 4096u;
+                    slice = pitch * uint64_t(height);
                 }
                 else if (flags & CP_FLAGS_ZMM)
                 {
-                    rowPitch = ((width * bpp + 511) / 512) * 64;
-                    slicePitch = rowPitch * height;
+                    pitch = ((uint64_t(width) * bpp + 511u) / 512u) * 64u;
+                    slice = pitch * uint64_t(height);
                 }
                 else if (flags & CP_FLAGS_YMM)
                 {
-                    rowPitch = ((width * bpp + 255) / 256) * 32;
-                    slicePitch = rowPitch * height;
+                    pitch = ((uint64_t(width) * bpp + 255u) / 256u) * 32u;
+                    slice = pitch * uint64_t(height);
                 }
                 else if (flags & CP_FLAGS_PARAGRAPH)
                 {
-                    rowPitch = ((width * bpp + 127) / 128) * 16;
-                    slicePitch = rowPitch * height;
+                    pitch = ((uint64_t(width) * bpp + 127u) / 128u) * 16u;
+                    slice = pitch * uint64_t(height);
                 }
                 else // DWORD alignment
                 {
                     // Special computation for some incorrectly created DDS files based on
                     // legacy DirectDraw assumptions about pitch alignment
-                    rowPitch = ((width * bpp + 31) / 32) * sizeof(uint32_t);
-                    slicePitch = rowPitch * height;
+                    pitch = ((uint64_t(width) * bpp + 31u) / 32u) * sizeof(uint32_t);
+                    slice = pitch * uint64_t(height);
                 }
             }
             else
             {
                 // Default byte alignment
-                rowPitch = (width * bpp + 7) / 8;
-                slicePitch = rowPitch * height;
+                pitch = (uint64_t(width) * bpp + 7u) / 8u;
+                slice = pitch * uint64_t(height);
             }
         }
         break;
     }
+
+#if defined(_M_IX86) || defined(_M_ARM) || defined(_M_HYBRID_X86_ARM64)
+    static_assert(sizeof(size_t) == 4, "Not a 32-bit platform!");
+    if (pitch > UINT32_MAX || slice > UINT32_MAX)
+    {
+        rowPitch = slicePitch = 0;
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+    }
+#else
+    static_assert(sizeof(size_t) == 8, "Not a 64-bit platform!");
+#endif
+
+    rowPitch = static_cast<size_t>(pitch);
+    slicePitch = static_cast<size_t>(slice);
+
+    return S_OK;
 }
 
 
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-size_t DirectX::ComputeScanlines(DXGI_FORMAT fmt, size_t height)
+size_t DirectX::ComputeScanlines(DXGI_FORMAT fmt, size_t height) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -1109,7 +1136,7 @@ size_t DirectX::ComputeScanlines(DXGI_FORMAT fmt, size_t height)
 // Converts to an SRGB equivalent type if available
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-DXGI_FORMAT DirectX::MakeSRGB(DXGI_FORMAT fmt)
+DXGI_FORMAT DirectX::MakeSRGB(DXGI_FORMAT fmt) noexcept
 {
     switch (fmt)
     {
@@ -1144,7 +1171,7 @@ DXGI_FORMAT DirectX::MakeSRGB(DXGI_FORMAT fmt)
 // Converts to a format to an equivalent TYPELESS format if available
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-DXGI_FORMAT DirectX::MakeTypeless(DXGI_FORMAT fmt)
+DXGI_FORMAT DirectX::MakeTypeless(DXGI_FORMAT fmt) noexcept
 {
     switch (static_cast<int>(fmt))
     {
@@ -1264,7 +1291,7 @@ DXGI_FORMAT DirectX::MakeTypeless(DXGI_FORMAT fmt)
 // Converts to a TYPELESS format to an equivalent UNORM format if available
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-DXGI_FORMAT DirectX::MakeTypelessUNORM(DXGI_FORMAT fmt)
+DXGI_FORMAT DirectX::MakeTypelessUNORM(DXGI_FORMAT fmt) noexcept
 {
     switch (fmt)
     {
@@ -1323,7 +1350,7 @@ DXGI_FORMAT DirectX::MakeTypelessUNORM(DXGI_FORMAT fmt)
 // Converts to a TYPELESS format to an equivalent FLOAT format if available
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-DXGI_FORMAT DirectX::MakeTypelessFLOAT(DXGI_FORMAT fmt)
+DXGI_FORMAT DirectX::MakeTypelessFLOAT(DXGI_FORMAT fmt) noexcept
 {
     switch (fmt)
     {
@@ -1359,7 +1386,7 @@ DXGI_FORMAT DirectX::MakeTypelessFLOAT(DXGI_FORMAT fmt)
 //=====================================================================================
 
 _Use_decl_annotations_
-size_t TexMetadata::ComputeIndex(size_t mip, size_t item, size_t slice) const
+size_t TexMetadata::ComputeIndex(size_t mip, size_t item, size_t slice) const noexcept
 {
     if (mip >= mipLevels)
         return size_t(-1);
@@ -1401,7 +1428,6 @@ size_t TexMetadata::ComputeIndex(size_t mip, size_t item, size_t slice) const
 
             return index;
         }
-        break;
 
     default:
         return size_t(-1);
@@ -1428,7 +1454,7 @@ Blob& Blob::operator= (Blob&& moveFrom) noexcept
     return *this;
 }
 
-void Blob::Release()
+void Blob::Release() noexcept
 {
     if (m_buffer)
     {
@@ -1440,7 +1466,7 @@ void Blob::Release()
 }
 
 _Use_decl_annotations_
-HRESULT Blob::Initialize(size_t size)
+HRESULT Blob::Initialize(size_t size) noexcept
 {
     if (!size)
         return E_INVALIDARG;
@@ -1459,7 +1485,7 @@ HRESULT Blob::Initialize(size_t size)
     return S_OK;
 }
 
-HRESULT Blob::Trim(size_t size)
+HRESULT Blob::Trim(size_t size) noexcept
 {
     if (!size)
         return E_INVALIDARG;

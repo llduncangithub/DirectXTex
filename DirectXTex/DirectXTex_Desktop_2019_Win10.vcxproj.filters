@@ -8,13 +8,13 @@
       <UniqueIdentifier>{9b7fcbc5-2533-4b88-b75b-d4803e55fa7c}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Shaders">
-      <UniqueIdentifier>{eb989628-e889-44bf-837a-05c9f09b258e}</UniqueIdentifier>
+      <UniqueIdentifier>{d665bb3f-6d2a-415d-83f5-abd5c813962b}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Shaders\Compiled">
-      <UniqueIdentifier>{a674c059-ed12-4d51-b5b3-44c34ce565da}</UniqueIdentifier>
+      <UniqueIdentifier>{b8e74ae5-5bcf-404a-b18b-df14ecd31b2d}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Shaders\Symbols">
-      <UniqueIdentifier>{c0d1c51b-c157-45b8-9169-af3cc2c4f4b6}</UniqueIdentifier>
+      <UniqueIdentifier>{34309123-96a2-4472-b288-885f1fd2ac6c}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -33,7 +33,7 @@
     <CLInclude Include="DDS.h">
       <Filter>Source Files</Filter>
     </CLInclude>
-    <CLInclude Include="DirectXTexp.h">
+    <CLInclude Include="DirectXTexP.h">
       <Filter>Source Files</Filter>
     </CLInclude>
     <ClInclude Include="filters.h">
@@ -42,6 +42,9 @@
     <CLInclude Include="scoped.h">
       <Filter>Source Files</Filter>
     </CLInclude>
+    <ClInclude Include="d3dx12.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BC.cpp">
@@ -101,6 +104,9 @@
     <ClCompile Include="DirectXTexHDR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DirectXTexD3D12.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CLInclude Include="BC.h">
@@ -111,10 +117,10 @@
     <None Include="Shaders\CompileShaders.cmd">
       <Filter>Source Files\Shaders</Filter>
     </None>
-    <None Include="Shaders\BC6HEncode.hlsl">
+    <None Include="Shaders\BC7Encode.hlsl">
       <Filter>Source Files\Shaders</Filter>
     </None>
-    <None Include="Shaders\BC7Encode.hlsl">
+    <None Include="Shaders\BC6HEncode.hlsl">
       <Filter>Source Files\Shaders</Filter>
     </None>
     <None Include="Shaders\Compiled\BC6HEncode_EncodeBlockCS.inc">

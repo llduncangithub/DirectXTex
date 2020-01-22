@@ -9,7 +9,7 @@
 // http://go.microsoft.com/fwlink/?LinkId=248926
 //-------------------------------------------------------------------------------------
 
-#include "directxtexp.h"
+#include "DirectXTexP.h"
 
 //-------------------------------------------------------------------------------------
 // IStream support for WIC Memory routines
@@ -60,9 +60,9 @@
 #else
 
     #pragma prefast(suppress:6387 28196, "a simple wrapper around an existing annotated function" );
-    static inline HRESULT CreateMemoryStream(_Outptr_ IStream** stream)
+    static inline HRESULT CreateMemoryStream(_Outptr_ IStream** stream) noexcept
     {
-        return CreateStreamOnHGlobal(0, TRUE, stream);
+        return CreateStreamOnHGlobal(nullptr, TRUE, stream);
     }
 
 #endif
@@ -79,8 +79,9 @@ namespace
 
     struct WICConvert
     {
-        GUID        source;
-        GUID        target;
+        GUID            source;
+        GUID            target;
+        TEX_ALPHA_MODE  alphaMode;
     };
 
     const WICConvert g_WICConvert[] =
@@ -88,54 +89,54 @@ namespace
         // Directly support the formats listed in XnaTexUtil::g_WICFormats, so no conversion required
         // Note target GUID in this conversion table must be one of those directly supported formats.
 
-        { GUID_WICPixelFormat1bppIndexed,           GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat2bppIndexed,           GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat4bppIndexed,           GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat8bppIndexed,           GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat1bppIndexed,           GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat2bppIndexed,           GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat4bppIndexed,           GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat8bppIndexed,           GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
 
-        { GUID_WICPixelFormat2bppGray,              GUID_WICPixelFormat8bppGray }, // DXGI_FORMAT_R8_UNORM 
-        { GUID_WICPixelFormat4bppGray,              GUID_WICPixelFormat8bppGray }, // DXGI_FORMAT_R8_UNORM 
+        { GUID_WICPixelFormat2bppGray,              GUID_WICPixelFormat8bppGray, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8_UNORM 
+        { GUID_WICPixelFormat4bppGray,              GUID_WICPixelFormat8bppGray, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8_UNORM 
 
-        { GUID_WICPixelFormat16bppGrayFixedPoint,   GUID_WICPixelFormat16bppGrayHalf }, // DXGI_FORMAT_R16_FLOAT 
-        { GUID_WICPixelFormat32bppGrayFixedPoint,   GUID_WICPixelFormat32bppGrayFloat }, // DXGI_FORMAT_R32_FLOAT 
+        { GUID_WICPixelFormat16bppGrayFixedPoint,   GUID_WICPixelFormat16bppGrayHalf, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16_FLOAT 
+        { GUID_WICPixelFormat32bppGrayFixedPoint,   GUID_WICPixelFormat32bppGrayFloat, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R32_FLOAT 
 
-        { GUID_WICPixelFormat16bppBGR555,           GUID_WICPixelFormat16bppBGRA5551 }, // DXGI_FORMAT_B5G5R5A1_UNORM 
-        { GUID_WICPixelFormat32bppBGR101010,        GUID_WICPixelFormat32bppRGBA1010102 }, // DXGI_FORMAT_R10G10B10A2_UNORM
+        { GUID_WICPixelFormat16bppBGR555,           GUID_WICPixelFormat16bppBGRA5551, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_B5G5R5A1_UNORM 
+        { GUID_WICPixelFormat32bppBGR101010,        GUID_WICPixelFormat32bppRGBA1010102, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R10G10B10A2_UNORM
 
-        { GUID_WICPixelFormat24bppBGR,              GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat24bppRGB,              GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat32bppPBGRA,            GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
-        { GUID_WICPixelFormat32bppPRGBA,            GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat24bppBGR,              GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat24bppRGB,              GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat32bppPBGRA,            GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
+        { GUID_WICPixelFormat32bppPRGBA,            GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM 
 
-        { GUID_WICPixelFormat48bppRGB,              GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat48bppBGR,              GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat64bppBGRA,             GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat64bppPRGBA,            GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat64bppPBGRA,            GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat48bppRGB,              GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat48bppBGR,              GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat64bppBGRA,             GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat64bppPRGBA,            GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat64bppPBGRA,            GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16G16B16A16_UNORM
 
-        { GUID_WICPixelFormat48bppRGBFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat48bppBGRFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat64bppRGBAFixedPoint,   GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat64bppBGRAFixedPoint,   GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat64bppRGBFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat64bppRGBHalf,          GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
-        { GUID_WICPixelFormat48bppRGBHalf,          GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat48bppRGBFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat48bppBGRFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat64bppRGBAFixedPoint,   GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_UNKNOWN  }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat64bppBGRAFixedPoint,   GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_UNKNOWN  }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat64bppRGBFixedPoint,    GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat64bppRGBHalf,          GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat48bppRGBHalf,          GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
 
-        { GUID_WICPixelFormat128bppPRGBAFloat,      GUID_WICPixelFormat128bppRGBAFloat }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
-        { GUID_WICPixelFormat128bppRGBFloat,        GUID_WICPixelFormat128bppRGBAFloat }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
-        { GUID_WICPixelFormat128bppRGBAFixedPoint,  GUID_WICPixelFormat128bppRGBAFloat }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
-        { GUID_WICPixelFormat128bppRGBFixedPoint,   GUID_WICPixelFormat128bppRGBAFloat }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
-        { GUID_WICPixelFormat32bppRGBE,             GUID_WICPixelFormat128bppRGBAFloat }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
+        { GUID_WICPixelFormat128bppPRGBAFloat,      GUID_WICPixelFormat128bppRGBAFloat, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
+        { GUID_WICPixelFormat128bppRGBFloat,        GUID_WICPixelFormat128bppRGBAFloat, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
+        { GUID_WICPixelFormat128bppRGBAFixedPoint,  GUID_WICPixelFormat128bppRGBAFloat, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
+        { GUID_WICPixelFormat128bppRGBFixedPoint,   GUID_WICPixelFormat128bppRGBAFloat, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
+        { GUID_WICPixelFormat32bppRGBE,             GUID_WICPixelFormat128bppRGBAFloat, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R32G32B32A32_FLOAT 
 
-        { GUID_WICPixelFormat32bppCMYK,             GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM
-        { GUID_WICPixelFormat64bppCMYK,             GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat40bppCMYKAlpha,        GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM
-        { GUID_WICPixelFormat80bppCMYKAlpha,        GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat32bppCMYK,             GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R8G8B8A8_UNORM
+        { GUID_WICPixelFormat64bppCMYK,             GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat40bppCMYKAlpha,        GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R8G8B8A8_UNORM
+        { GUID_WICPixelFormat80bppCMYKAlpha,        GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16G16B16A16_UNORM
 
     #if (_WIN32_WINNT >= _WIN32_WINNT_WIN8) || defined(_WIN7_PLATFORM_UPDATE)
-        { GUID_WICPixelFormat32bppRGB,              GUID_WICPixelFormat32bppRGBA }, // DXGI_FORMAT_R8G8B8A8_UNORM
-        { GUID_WICPixelFormat64bppRGB,              GUID_WICPixelFormat64bppRGBA }, // DXGI_FORMAT_R16G16B16A16_UNORM
-        { GUID_WICPixelFormat64bppPRGBAHalf,        GUID_WICPixelFormat64bppRGBAHalf }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
+        { GUID_WICPixelFormat32bppRGB,              GUID_WICPixelFormat32bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R8G8B8A8_UNORM
+        { GUID_WICPixelFormat64bppRGB,              GUID_WICPixelFormat64bppRGBA, TEX_ALPHA_MODE_OPAQUE }, // DXGI_FORMAT_R16G16B16A16_UNORM
+        { GUID_WICPixelFormat64bppPRGBAHalf,        GUID_WICPixelFormat64bppRGBAHalf, TEX_ALPHA_MODE_UNKNOWN }, // DXGI_FORMAT_R16G16B16A16_FLOAT 
     #endif
 
         // We don't support n-channel formats
@@ -148,10 +149,13 @@ namespace
         _In_ const WICPixelFormatGUID& pixelFormat,
         DWORD flags,
         bool iswic2,
-        _Out_opt_ WICPixelFormatGUID* pConvert)
+        _Out_opt_ WICPixelFormatGUID* pConvert,
+        _Out_ TEX_ALPHA_MODE* alphaMode) noexcept
     {
         if (pConvert)
             memset(pConvert, 0, sizeof(WICPixelFormatGUID));
+
+        *alphaMode = TEX_ALPHA_MODE_UNKNOWN;
 
         DXGI_FORMAT format = _WICToDXGI(pixelFormat);
 
@@ -163,7 +167,7 @@ namespace
                 if (iswic2)
                 {
                     if (pConvert)
-                        memcpy(pConvert, &GUID_WICPixelFormat96bppRGBFloat, sizeof(WICPixelFormatGUID));
+                        memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat96bppRGBFloat, sizeof(GUID));
                     format = DXGI_FORMAT_R32G32B32_FLOAT;
                 }
                 else
@@ -172,8 +176,9 @@ namespace
 #endif
                 {
                     if (pConvert)
-                        memcpy(pConvert, &GUID_WICPixelFormat128bppRGBAFloat, sizeof(WICPixelFormatGUID));
+                        memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat128bppRGBAFloat, sizeof(GUID));
                     format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+                    *alphaMode = TEX_ALPHA_MODE_OPAQUE;
                 }
             }
             else
@@ -183,10 +188,11 @@ namespace
                     if (memcmp(&g_WICConvert[i].source, &pixelFormat, sizeof(WICPixelFormatGUID)) == 0)
                     {
                         if (pConvert)
-                            memcpy(pConvert, &g_WICConvert[i].target, sizeof(WICPixelFormatGUID));
+                            memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &g_WICConvert[i].target, sizeof(GUID));
 
                         format = _WICToDXGI(g_WICConvert[i].target);
                         assert(format != DXGI_FORMAT_UNKNOWN);
+                        *alphaMode = g_WICConvert[i].alphaMode;
                         break;
                     }
                 }
@@ -202,7 +208,7 @@ namespace
             {
                 format = DXGI_FORMAT_R8G8B8A8_UNORM;
                 if (pConvert)
-                    memcpy(pConvert, &GUID_WICPixelFormat32bppRGBA, sizeof(WICPixelFormatGUID));
+                    memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat32bppRGBA, sizeof(GUID));
             }
             break;
 
@@ -211,7 +217,7 @@ namespace
             {
                 format = DXGI_FORMAT_R10G10B10A2_UNORM;
                 if (pConvert)
-                    memcpy(pConvert, &GUID_WICPixelFormat32bppRGBA1010102, sizeof(WICPixelFormatGUID));
+                    memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat32bppRGBA1010102, sizeof(GUID));
             }
             break;
 
@@ -221,7 +227,7 @@ namespace
             {
                 format = DXGI_FORMAT_R8G8B8A8_UNORM;
                 if (pConvert)
-                    memcpy(pConvert, &GUID_WICPixelFormat32bppRGBA, sizeof(WICPixelFormatGUID));
+                    memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat32bppRGBA, sizeof(GUID));
             }
             break;
 
@@ -231,7 +237,7 @@ namespace
                 // By default we want to promote a black & white to gresycale since R1 is not a generally supported D3D format
                 format = DXGI_FORMAT_R8_UNORM;
                 if (pConvert)
-                    memcpy(pConvert, &GUID_WICPixelFormat8bppGray, sizeof(WICPixelFormatGUID));
+                    memcpy_s(pConvert, sizeof(WICPixelFormatGUID), &GUID_WICPixelFormat8bppGray, sizeof(GUID));
             }
             break;
 
@@ -288,9 +294,12 @@ namespace
         if (FAILED(hr))
             return hr;
 
-        metadata.format = DetermineFormat(pixelFormat, flags, iswic2, pConvert);
+        TEX_ALPHA_MODE alphaMode;
+        metadata.format = DetermineFormat(pixelFormat, flags, iswic2, pConvert, &alphaMode);
         if (metadata.format == DXGI_FORMAT_UNKNOWN)
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+
+        metadata.SetAlphaMode(alphaMode);
 
         if (!(flags & WIC_FLAGS_IGNORE_SRGB))
         {
@@ -390,9 +399,12 @@ namespace
         if (!pWIC)
             return E_NOINTERFACE;
 
+        if (img->rowPitch > UINT32_MAX || img->slicePitch > UINT32_MAX)
+            return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+
         if (memcmp(&convertGUID, &GUID_NULL, sizeof(GUID)) == 0)
         {
-            hr = frame->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+            hr = frame->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
             if (FAILED(hr))
                 return hr;
         }
@@ -419,7 +431,7 @@ namespace
             if (FAILED(hr))
                 return hr;
 
-            hr = FC->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+            hr = FC->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
             if (FAILED(hr))
                 return hr;
         }
@@ -459,6 +471,9 @@ namespace
             if (!img)
                 return E_POINTER;
 
+            if (img->rowPitch > UINT32_MAX || img->slicePitch > UINT32_MAX)
+                return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+
             ComPtr<IWICBitmapFrameDecode> frame;
             hr = decoder->GetFrame(static_cast<UINT>(index), frame.GetAddressOf());
             if (FAILED(hr))
@@ -479,7 +494,7 @@ namespace
                 // This frame does not need resized
                 if (memcmp(&pfGuid, &sourceGUID, sizeof(WICPixelFormatGUID)) == 0)
                 {
-                    hr = frame->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+                    hr = frame->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
                     if (FAILED(hr))
                         return hr;
                 }
@@ -501,7 +516,7 @@ namespace
                     if (FAILED(hr))
                         return hr;
 
-                    hr = FC->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+                    hr = FC->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
                     if (FAILED(hr))
                         return hr;
                 }
@@ -525,7 +540,7 @@ namespace
 
                 if (memcmp(&pfScaler, &sourceGUID, sizeof(WICPixelFormatGUID)) == 0)
                 {
-                    hr = scaler->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+                    hr = scaler->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
                     if (FAILED(hr))
                         return hr;
                 }
@@ -549,7 +564,7 @@ namespace
                     if (FAILED(hr))
                         return hr;
 
-                    hr = FC->CopyPixels(0, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
+                    hr = FC->CopyPixels(nullptr, static_cast<UINT>(img->rowPitch), static_cast<UINT>(img->slicePitch), img->pixels);
                     if (FAILED(hr))
                         return hr;
                 }
@@ -564,6 +579,7 @@ namespace
     // Encodes image metadata
     //-------------------------------------------------------------------------------------
     HRESULT EncodeMetadata(
+        DWORD flags,
         _In_ IWICBitmapFrameEncode* frame,
         const GUID& containerFormat,
         DXGI_FORMAT format)
@@ -578,7 +594,7 @@ namespace
             PROPVARIANT value;
             PropVariantInit(&value);
 
-            bool sRGB = IsSRGB(format);
+            bool sRGB = ((flags & WIC_FLAGS_FORCE_LINEAR) == 0) && ((flags & WIC_FLAGS_FORCE_SRGB) != 0 || IsSRGB(format));
 
             value.vt = VT_LPSTR;
             value.pszVal = const_cast<char*>("DirectXTex");
@@ -687,6 +703,9 @@ namespace
         if ((image.width > UINT32_MAX) || (image.height > UINT32_MAX))
             return E_INVALIDARG;
 
+        if (image.rowPitch > UINT32_MAX || image.slicePitch > UINT32_MAX)
+            return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+
         hr = frame->SetSize(static_cast<UINT>(image.width), static_cast<UINT>(image.height));
         if (FAILED(hr))
             return hr;
@@ -706,7 +725,7 @@ namespace
             return E_FAIL;
         }
 
-        hr = EncodeMetadata(frame, containerFormat, image.format);
+        hr = EncodeMetadata(flags, frame, containerFormat, image.format);
         if (FAILED(hr))
             return hr;
 
@@ -780,7 +799,7 @@ namespace
             return E_NOINTERFACE;
 
         ComPtr<IWICBitmapEncoder> encoder;
-        HRESULT hr = pWIC->CreateEncoder(containerFormat, 0, encoder.GetAddressOf());
+        HRESULT hr = pWIC->CreateEncoder(containerFormat, nullptr, encoder.GetAddressOf());
         if (FAILED(hr))
             return hr;
 
@@ -848,7 +867,7 @@ namespace
             return E_NOINTERFACE;
 
         ComPtr<IWICBitmapEncoder> encoder;
-        HRESULT hr = pWIC->CreateEncoder(containerFormat, 0, encoder.GetAddressOf());
+        HRESULT hr = pWIC->CreateEncoder(containerFormat, nullptr, encoder.GetAddressOf());
         if (FAILED(hr))
             return hr;
 
@@ -935,7 +954,7 @@ HRESULT DirectX::GetMetadataFromWICMemory(
 
     // Initialize WIC
     ComPtr<IWICBitmapDecoder> decoder;
-    hr = pWIC->CreateDecoderFromStream(stream.Get(), 0, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
+    hr = pWIC->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
     if (FAILED(hr))
         return hr;
 
@@ -973,7 +992,7 @@ HRESULT DirectX::GetMetadataFromWICFile(
 
     // Initialize WIC
     ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = pWIC->CreateDecoderFromFilename(szFile, 0, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
+    HRESULT hr = pWIC->CreateDecoderFromFilename(szFile, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
     if (FAILED(hr))
         return hr;
 
@@ -1028,7 +1047,7 @@ HRESULT DirectX::LoadFromWICMemory(
 
     // Initialize WIC
     ComPtr<IWICBitmapDecoder> decoder;
-    hr = pWIC->CreateDecoderFromStream(stream.Get(), 0, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
+    hr = pWIC->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
     if (FAILED(hr))
         return hr;
 
@@ -1089,7 +1108,7 @@ HRESULT DirectX::LoadFromWICFile(
 
     // Initialize WIC
     ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = pWIC->CreateDecoderFromFilename(szFile, 0, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
+    HRESULT hr = pWIC->CreateDecoderFromFilename(szFile, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
     if (FAILED(hr))
         return hr;
 
@@ -1167,7 +1186,7 @@ HRESULT DirectX::SaveToWICMemory(
         return hr;
 
     LARGE_INTEGER li = {};
-    hr = stream->Seek(li, STREAM_SEEK_SET, 0);
+    hr = stream->Seek(li, STREAM_SEEK_SET, nullptr);
     if (FAILED(hr))
         return hr;
 
@@ -1224,7 +1243,7 @@ HRESULT DirectX::SaveToWICMemory(
         return hr;
 
     LARGE_INTEGER li = {};
-    hr = stream->Seek(li, STREAM_SEEK_SET, 0);
+    hr = stream->Seek(li, STREAM_SEEK_SET, nullptr);
     if (FAILED(hr))
         return hr;
 

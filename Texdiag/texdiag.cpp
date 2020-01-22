@@ -15,7 +15,6 @@
 #define NOMINMAX
 #define NODRAWTEXT
 #define NOGDI
-#define NOBITMAP
 #define NOMCX
 #define NOSERVICE
 #define NOHELP
@@ -32,7 +31,9 @@
 
 #include <dxgiformat.h>
 
-#include "directxtex.h"
+#pragma warning(disable : 4619 4616 26812)
+
+#include "DirectXTex.h"
 
 //Uncomment to add support for OpenEXR (.exr)
 //#define USE_OPENEXR
@@ -197,7 +198,7 @@ const SValue g_pFormats[] =
     { nullptr, DXGI_FORMAT_UNKNOWN }
 };
 
-const SValue g_pFormatAliases [] =
+const SValue g_pFormatAliases[] =
 {
     { L"RGBA", DXGI_FORMAT_R8G8B8A8_UNORM },
     { L"BGRA", DXGI_FORMAT_B8G8R8A8_UNORM },
@@ -307,10 +308,13 @@ const SValue g_pFilters[] =
     { nullptr,                      TEX_FILTER_DEFAULT }
 };
 
-#define CODEC_DDS 0xFFFF0001 
+#define CODEC_DDS 0xFFFF0001
 #define CODEC_TGA 0xFFFF0002
 #define CODEC_HDR 0xFFFF0005
+
+#ifdef USE_OPENEXR
 #define CODEC_EXR 0xFFFF0006
+#endif
 
 const SValue g_pDumpFileTypes[] =
 {
@@ -355,13 +359,15 @@ const SValue g_pExtFileTypes[] =
 
 namespace
 {
-    inline HANDLE safe_handle(HANDLE h) { return (h == INVALID_HANDLE_VALUE) ? 0 : h; }
+    inline HANDLE safe_handle(HANDLE h) { return (h == INVALID_HANDLE_VALUE) ? nullptr : h; }
 
     struct find_closer { void operator()(HANDLE h) { assert(h != INVALID_HANDLE_VALUE); if (h) FindClose(h); } };
 
-    typedef public std::unique_ptr<void, find_closer> ScopedFindHandle;
+    using ScopedFindHandle = std::unique_ptr<void, find_closer>;
 
+#ifdef _PREFAST_
 #pragma prefast(disable : 26018, "Only used with static internal arrays")
+#endif
 
     DWORD LookupByName(const wchar_t *pName, const SValue *pArray)
     {
@@ -394,7 +400,7 @@ namespace
     void SearchForFiles(const wchar_t* path, std::list<SConversion>& files, bool recursive)
     {
         // Process files
-        WIN32_FIND_DATA findData = {};
+        WIN32_FIND_DATAW findData = {};
         ScopedFindHandle hFile(safe_handle(FindFirstFileExW(path,
             FindExInfoBasic, &findData,
             FindExSearchNameMatch, nullptr,
@@ -414,7 +420,7 @@ namespace
                     files.push_back(conv);
                 }
 
-                if (!FindNextFile(hFile.get(), &findData))
+                if (!FindNextFileW(hFile.get(), &findData))
                     break;
             }
         }
@@ -459,7 +465,7 @@ namespace
                     }
                 }
 
-                if (!FindNextFile(hFile.get(), &findData))
+                if (!FindNextFileW(hFile.get(), &findData))
                     break;
             }
         }
@@ -470,18 +476,18 @@ namespace
     {
         for (const SValue *pFormat = g_pFormats; pFormat->pName; pFormat++)
         {
-            if ((DXGI_FORMAT)pFormat->dwValue == Format)
+            if (static_cast<DXGI_FORMAT>(pFormat->dwValue) == Format)
             {
-                wprintf(pFormat->pName);
+                wprintf(L"%ls", pFormat->pName);
                 return;
             }
         }
 
         for (const SValue *pFormat = g_pReadOnlyFormats; pFormat->pName; pFormat++)
         {
-            if ((DXGI_FORMAT)pFormat->dwValue == Format)
+            if (static_cast<DXGI_FORMAT>(pFormat->dwValue) == Format)
             {
-                wprintf(pFormat->pName);
+                wprintf(L"%ls", pFormat->pName);
                 return;
             }
         }
@@ -626,12 +632,12 @@ namespace
         else
         {
             // WIC shares the same filter values for mode and dither
-            static_assert(WIC_FLAGS_DITHER == TEX_FILTER_DITHER, "WIC_FLAGS_* & TEX_FILTER_* should match");
-            static_assert(WIC_FLAGS_DITHER_DIFFUSION == TEX_FILTER_DITHER_DIFFUSION, "WIC_FLAGS_* & TEX_FILTER_* should match");
-            static_assert(WIC_FLAGS_FILTER_POINT == TEX_FILTER_POINT, "WIC_FLAGS_* & TEX_FILTER_* should match");
-            static_assert(WIC_FLAGS_FILTER_LINEAR == TEX_FILTER_LINEAR, "WIC_FLAGS_* & TEX_FILTER_* should match");
-            static_assert(WIC_FLAGS_FILTER_CUBIC == TEX_FILTER_CUBIC, "WIC_FLAGS_* & TEX_FILTER_* should match");
-            static_assert(WIC_FLAGS_FILTER_FANT == TEX_FILTER_FANT, "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_DITHER) == static_cast<int>(TEX_FILTER_DITHER), "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_DITHER_DIFFUSION) == static_cast<int>(TEX_FILTER_DITHER_DIFFUSION), "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_FILTER_POINT) == static_cast<int>(TEX_FILTER_POINT), "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_FILTER_LINEAR) == static_cast<int>(TEX_FILTER_LINEAR), "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_FILTER_CUBIC) == static_cast<int>(TEX_FILTER_CUBIC), "WIC_FLAGS_* & TEX_FILTER_* should match");
+            static_assert(static_cast<int>(WIC_FLAGS_FILTER_FANT) == static_cast<int>(TEX_FILTER_FANT), "WIC_FLAGS_* & TEX_FILTER_* should match");
 
             return LoadFromWICFile(fileName, dwFilter | WIC_FLAGS_ALL_FRAMES, &info, *image);
         }
@@ -704,43 +710,43 @@ namespace
         size_t totalPixels = 0;
 
         HRESULT hr = EvaluateImage(image, [&](const XMVECTOR * pixels, size_t width, size_t y)
-        {
-            static const XMVECTORF32 s_luminance = { 0.3f, 0.59f, 0.11f, 0.f };
-
-            UNREFERENCED_PARAMETER(y);
-
-            for (size_t x = 0; x < width; ++x)
             {
-                XMVECTOR v = *pixels++;
-                luminance = XMVectorMax(luminance, XMVector3Dot(v, s_luminance) );
-                minv = XMVectorMin(minv, v);
-                maxv = XMVectorMax(maxv, v);
-                acc = XMVectorAdd(v, acc);
-                ++totalPixels;
+                static const XMVECTORF32 s_luminance = { { {  0.3f, 0.59f, 0.11f, 0.f } } };
 
-                XMFLOAT4 f;
-                XMStoreFloat4(&f, v);
-                if (!_finite(f.x))
-                {
-                    ++result.specials_x;
-                }
+                UNREFERENCED_PARAMETER(y);
 
-                if (!_finite(f.y))
+                for (size_t x = 0; x < width; ++x)
                 {
-                    ++result.specials_y;
-                }
+                    XMVECTOR v = *pixels++;
+                    luminance = XMVectorMax(luminance, XMVector3Dot(v, s_luminance));
+                    minv = XMVectorMin(minv, v);
+                    maxv = XMVectorMax(maxv, v);
+                    acc = XMVectorAdd(v, acc);
+                    ++totalPixels;
 
-                if (!_finite(f.z))
-                {
-                    ++result.specials_z;
-                }
+                    XMFLOAT4 f;
+                    XMStoreFloat4(&f, v);
+                    if (!isfinite(f.x))
+                    {
+                        ++result.specials_x;
+                    }
 
-                if (!_finite(f.w))
-                {
-                    ++result.specials_w;
+                    if (!isfinite(f.y))
+                    {
+                        ++result.specials_y;
+                    }
+
+                    if (!isfinite(f.z))
+                    {
+                        ++result.specials_z;
+                    }
+
+                    if (!isfinite(f.w))
+                    {
+                        ++result.specials_w;
+                    }
                 }
-            }
-        });
+            });
         if (FAILED(hr))
             return hr;
 
@@ -759,17 +765,17 @@ namespace
         acc = g_XMZero;
 
         hr = EvaluateImage(image, [&](const XMVECTOR * pixels, size_t width, size_t y)
-        {
-            UNREFERENCED_PARAMETER(y);
-
-            for (size_t x = 0; x < width; ++x)
             {
-                XMVECTOR v = *pixels++;
+                UNREFERENCED_PARAMETER(y);
 
-                XMVECTOR diff = XMVectorSubtract(v, avgv);
-                acc = XMVectorMultiplyAdd(diff, diff, acc);
-            }
-        });
+                for (size_t x = 0; x < width; ++x)
+                {
+                    XMVECTOR v = *pixels++;
+
+                    XMVECTOR diff = XMVectorSubtract(v, avgv);
+                    acc = XMVectorMultiplyAdd(diff, diff, acc);
+                }
+            });
         if (FAILED(hr))
             return hr;
 
@@ -830,7 +836,7 @@ namespace
                 for (size_t j = 1; j <= 14; ++j)
                 {
                     if (blockHist[j] > 0)
-                        wprintf(L"\t     Mode %02Iu blocks - %zu\n", j, blockHist[j]);
+                        wprintf(L"\t     Mode %02zu blocks - %zu\n", j, blockHist[j]);
                 }
                 if (blockHist[0] > 0)
                     wprintf(L"\tReserved mode blcks - %zu\n", blockHist[0]);
@@ -841,10 +847,13 @@ namespace
                 for (size_t j = 0; j <= 7; ++j)
                 {
                     if (blockHist[j] > 0)
-                        wprintf(L"\t     Mode %02Iu blocks - %zu\n", j, blockHist[j]);
+                        wprintf(L"\t     Mode %02zu blocks - %zu\n", j, blockHist[j]);
                 }
                 if (blockHist[8] > 0)
                     wprintf(L"\tReserved mode blcks - %zu\n", blockHist[8]);
+                break;
+
+            default:
                 break;
             }
         }
@@ -1204,6 +1213,9 @@ namespace
                         ++result.blockHist[8];
                     }
                     break;
+
+                default:
+                    break;
                 }
 
                 sptr += sbpp;
@@ -1248,7 +1260,7 @@ namespace
                 if (FAILED(hr))
                     return hr;
 
-                imageB = tempB.GetImage(0,0,0);
+                imageB = tempB.GetImage(0, 0, 0);
             }
             else
             {
@@ -1265,22 +1277,22 @@ namespace
 
         ScratchImage diffImage;
         HRESULT hr = TransformImage(*imageA, [&](XMVECTOR* outPixels, const XMVECTOR * inPixels, size_t width, size_t y)
-        {
-            auto *inPixelsB = reinterpret_cast<XMVECTOR*>(imageB->pixels + (y*imageB->rowPitch));
-
-            for (size_t x = 0; x < width; ++x)
             {
-                XMVECTOR v1 = *inPixels++;
-                XMVECTOR v2 = *inPixelsB++;
+                auto *inPixelsB = reinterpret_cast<XMVECTOR*>(imageB->pixels + (y*imageB->rowPitch));
 
-                v1 = XMVectorSubtract(v1, v2);
-                v1 = XMVectorAbs(v1);
+                for (size_t x = 0; x < width; ++x)
+                {
+                    XMVECTOR v1 = *inPixels++;
+                    XMVECTOR v2 = *inPixelsB++;
 
-                v1 = XMVectorSelect( g_XMIdentityR3, v1, g_XMSelect1110);
+                    v1 = XMVectorSubtract(v1, v2);
+                    v1 = XMVectorAbs(v1);
 
-                *outPixels++ = v1;
-            }
-        }, (format == DXGI_FORMAT_R32G32B32A32_FLOAT) ? result : diffImage);
+                    v1 = XMVectorSelect(g_XMIdentityR3, v1, g_XMSelect1110);
+
+                    *outPixels++ = v1;
+                }
+            }, (format == DXGI_FORMAT_R32G32B32A32_FLOAT) ? result : diffImage);
         if (FAILED(hr))
             return hr;
 
@@ -1368,15 +1380,15 @@ namespace
     }
 
     //--------------------------------------------------------------------------------------
-#define SIGN_EXTEND(x,nb) ((((x)&(1<<((nb)-1)))?((~0)<<(nb)):0)|(x))
+#define SIGN_EXTEND(x,nb) ((((x)&(1<<((nb)-1)))?((~0)^((1<<(nb))-1)):0)|(x))
 
-#define NUM_PIXELS_PER_BLOCK 16 
+#define NUM_PIXELS_PER_BLOCK 16
 
     void Print565(uint16_t rgb)
     {
-        float r = (float)((rgb >> 11) & 31) * (1.0f / 31.0f);
-        float g = (float)((rgb >> 5) & 63) * (1.0f / 63.0f);
-        float b = (float)((rgb >> 0) & 31) * (1.0f / 31.0f);
+        auto r = float(((rgb >> 11) & 31) * (1.0f / 31.0f));
+        auto g = float(((rgb >> 5) & 63) * (1.0f / 63.0f));
+        auto b = float(((rgb >> 0) & 31) * (1.0f / 31.0f));
 
         wprintf(L"(R: %.3f, G: %.3f, B: %.3f)", r, g, b);
     }
@@ -1442,7 +1454,7 @@ namespace
 
     void PrintIndex3bpp(const uint8_t data[6])
     {
-        uint32_t bitmap = data[0] | (data[1] << 8) | (data[2] << 16);
+        uint32_t bitmap = uint32_t(data[0]) | (uint32_t(data[1]) << 8) | (uint32_t(data[2]) << 16);
 
         size_t j = 0;
         for (; j < (NUM_PIXELS_PER_BLOCK / 2); ++j, bitmap >>= 3)
@@ -1450,7 +1462,7 @@ namespace
             wprintf(L"%u%ls", bitmap & 0x7, ((j % 4) == 3) ? L" | " : L" ");
         }
 
-        bitmap = data[3] | (data[4] << 8) | (data[5] << 16);
+        bitmap = uint32_t(data[3]) | (uint32_t(data[4]) << 8) | (uint32_t(data[5]) << 16);
 
         for (; j < NUM_PIXELS_PER_BLOCK; ++j, bitmap >>= 3)
         {
@@ -1595,8 +1607,8 @@ namespace
                     wprintf(L"\n");
 
                     wprintf(L"\tAlpha - E0: %0.3f  E1: %0.3f (%u)\n\t     Index: ",
-                        float((float)block->alpha[0] / 255.f),
-                        float((float)block->alpha[1] / 255.f), (block->alpha[0] > block->alpha[1]) ? 8 : 6);
+                        (float(block->alpha[0]) / 255.f),
+                        (float(block->alpha[1]) / 255.f), (block->alpha[0] > block->alpha[1]) ? 8 : 6);
 
                     PrintIndex3bpp(block->bitmap);
 
@@ -1609,8 +1621,8 @@ namespace
                     auto block = reinterpret_cast<const BC4UBlock*>(sptr);
 
                     wprintf(L"\t   E0: %0.3f  E1: %0.3f (%u)\n\tIndex: ",
-                        float((float)block->red_0 / 255.f),
-                        float((float)block->red_1 / 255.f), (block->red_0 > block->red_1) ? 8 : 6);
+                        (float(block->red_0) / 255.f),
+                        (float(block->red_1) / 255.f), (block->red_0 > block->red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->indices);
 
@@ -1623,8 +1635,8 @@ namespace
                     auto block = reinterpret_cast<const BC4SBlock*>(sptr);
 
                     wprintf(L"\t   E0: %0.3f  E1: %0.3f (%u)\n\tIndex: ",
-                        float((float)block->red_0 / 127.f),
-                        float((float)block->red_1 / 127.f), (block->red_0 > block->red_1) ? 8 : 6);
+                        (float(block->red_0) / 127.f),
+                        (float(block->red_1) / 127.f), (block->red_0 > block->red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->indices);
 
@@ -1637,16 +1649,16 @@ namespace
                     auto block = reinterpret_cast<const BC5UBlock*>(sptr);
 
                     wprintf(L"\tU -   E0: %0.3f  E1: %0.3f (%u)\n\t   Index: ",
-                        float((float)block->u.red_0 / 255.f),
-                        float((float)block->u.red_1 / 255.f), (block->u.red_0 > block->u.red_1) ? 8 : 6);
+                        (float(block->u.red_0) / 255.f),
+                        (float(block->u.red_1) / 255.f), (block->u.red_0 > block->u.red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->u.indices);
 
                     wprintf(L"\n");
 
                     wprintf(L"\tV -   E0: %0.3f  E1: %0.3f (%u)\n\t   Index: ",
-                        float((float)block->v.red_0 / 255.f),
-                        float((float)block->v.red_1 / 255.f), (block->v.red_0 > block->v.red_1) ? 8 : 6);
+                        (float(block->v.red_0) / 255.f),
+                        (float(block->v.red_1) / 255.f), (block->v.red_0 > block->v.red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->v.indices);
 
@@ -1659,16 +1671,16 @@ namespace
                     auto block = reinterpret_cast<const BC5SBlock*>(sptr);
 
                     wprintf(L"\tU -   E0: %0.3f  E1: %0.3f (%u)\n\t   Index: ",
-                        float((float)block->u.red_0 / 127.f),
-                        float((float)block->u.red_1 / 127.f), (block->u.red_0 > block->u.red_1) ? 8 : 6);
+                        (float(block->u.red_0) / 127.f),
+                        (float(block->u.red_1) / 127.f), (block->u.red_0 > block->u.red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->u.indices);
 
                     wprintf(L"\n");
 
                     wprintf(L"\tV -   E0: %0.3f  E1: %0.3f (%u)\n\t   Index: ",
-                        float((float)block->v.red_0 / 127.f),
-                        float((float)block->v.red_1 / 127.f), (block->v.red_0 > block->v.red_1) ? 8 : 6);
+                        (float(block->v.red_0) / 127.f),
+                        (float(block->v.red_1) / 127.f), (block->v.red_0 > block->v.red_1) ? 8 : 6);
 
                     PrintIndex3bpp(block->v.indices);
 
@@ -2659,6 +2671,9 @@ namespace
                         case 0x1F: // Reserved mode (5 bits, 11111)
                             wprintf(L"\tERROR - Reserved mode 11111\n");
                             break;
+
+                        default:
+                            break;
                         }
                         break;
                     }
@@ -2866,7 +2881,7 @@ namespace
                         wprintf(L"\t         A1:(%0.3f)\n", float(m->a1) / 63.f);
                         wprintf(L"\t    Colors: ");
 
-                        uint64_t color_index = m->color_index | (m->color_indexn << 14);
+                        uint64_t color_index = uint64_t(m->color_index) | uint64_t(m->color_indexn << 14);
                         if (m->idx)
                             PrintIndex3bpp(color_index, 0, 0);
                         else
@@ -3008,7 +3023,9 @@ namespace
 //--------------------------------------------------------------------------------------
 // Entry-point
 //--------------------------------------------------------------------------------------
+#ifdef _PREFAST_
 #pragma prefast(disable : 28198, "Command-line tool, frees all memory on exit")
+#endif
 
 int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 {
@@ -3024,7 +3041,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     HRESULT hr = hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr))
     {
-        wprintf(L"Failed to initialize COM (%08X)\n", hr);
+        wprintf(L"Failed to initialize COM (%08X)\n", static_cast<unsigned int>(hr));
         return 1;
     }
 
@@ -3099,6 +3116,9 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     iArg++;
                     pValue = argv[iArg];
                 }
+                break;
+
+            default:
                 break;
             }
 
@@ -3197,45 +3217,48 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_FILELIST:
+            {
+                std::wifstream inFile(pValue);
+                if (!inFile)
                 {
-                    std::wifstream inFile(pValue);
+                    wprintf(L"Error opening -flist file %ls\n", pValue);
+                    return 1;
+                }
+                wchar_t fname[1024] = {};
+                for (;;)
+                {
+                    inFile >> fname;
                     if (!inFile)
+                        break;
+
+                    if (*fname == L'#')
                     {
-                        wprintf(L"Error opening -flist file %ls\n", pValue);
+                        // Comment
+                    }
+                    else if (*fname == L'-')
+                    {
+                        wprintf(L"Command-line arguments not supported in -flist file\n");
                         return 1;
                     }
-                    wchar_t fname[1024] = {};
-                    for (;;)
+                    else if (wcspbrk(fname, L"?*") != nullptr)
                     {
-                        inFile >> fname;
-                        if (!inFile)
-                            break;
-
-                        if (*fname == L'#')
-                        {
-                            // Comment
-                        }
-                        else if (*fname == L'-')
-                        {
-                            wprintf(L"Command-line arguments not supported in -flist file\n");
-                            return 1;
-                        }
-                        else if (wcspbrk(fname, L"?*") != nullptr)
-                        {
-                            wprintf(L"Wildcards not supported in -flist file\n");
-                            return 1;
-                        }
-                        else
-                        {
-                            SConversion conv;
-                            wcscpy_s(conv.szSrc, MAX_PATH, fname);
-                            conversion.push_back(conv);
-                        }
-
-                        inFile.ignore(1000, '\n');
+                        wprintf(L"Wildcards not supported in -flist file\n");
+                        return 1;
                     }
-                    inFile.close();
+                    else
+                    {
+                        SConversion conv;
+                        wcscpy_s(conv.szSrc, MAX_PATH, fname);
+                        conversion.push_back(conv);
+                    }
+
+                    inFile.ignore(1000, '\n');
                 }
+                inFile.close();
+            }
+            break;
+
+            default:
                 break;
             }
         }
@@ -3289,7 +3312,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadImage(pImage1->szSrc, dwOptions, dwFilter, info1, image1);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", hr);
+                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                 return 1;
             }
 
@@ -3304,7 +3327,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadImage(pImage2->szSrc, dwOptions, dwFilter, info2, image2);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", hr);
+                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                 return 1;
             }
 
@@ -3341,7 +3364,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 hr = Difference(*image1->GetImage(0, 0, 0), *image2->GetImage(0, 0, 0), dwFilter, diffFormat, diffImage);
                 if (FAILED(hr))
                 {
-                    wprintf(L"Failed diffing images (%08X)\n", hr);
+                    wprintf(L"Failed diffing images (%08X)\n", static_cast<unsigned int>(hr));
                     return 1;
                 }
 
@@ -3357,7 +3380,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 hr = SaveImage(diffImage.GetImage(0, 0, 0), szOutputFile, fileType);
                 if (FAILED(hr))
                 {
-                    wprintf(L" FAILED (%x)\n", hr);
+                    wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                     return 1;
                 }
 
@@ -3379,7 +3402,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 hr = ComputeMSE(*image1->GetImage(0, 0, 0), *image2->GetImage(0, 0, 0), mse, mseV);
                 if (FAILED(hr))
                 {
-                    wprintf(L"Failed comparing images (%08X)\n", hr);
+                    wprintf(L"Failed comparing images (%08X)\n", static_cast<unsigned int>(hr));
                     return 1;
                 }
 
@@ -3402,7 +3425,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                 if (info1.depth > 1)
                 {
-                    wprintf(L"Results by mip (%3Iu) and slice (%3Iu)\n\n", info1.mipLevels, info1.depth);
+                    wprintf(L"Results by mip (%3zu) and slice (%3zu)\n\n", info1.mipLevels, info1.depth);
 
                     size_t depth = info1.depth;
                     for (size_t mip = 0; mip < info1.mipLevels; ++mip)
@@ -3417,7 +3440,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 || img1->height != img2->height
                                 || img1->width != img2->width)
                             {
-                                wprintf(L"ERROR: Unexpected mismatch at slice %3Iu, mip %3Iu\n", slice, mip);
+                                wprintf(L"ERROR: Unexpected mismatch at slice %3zu, mip %3zu\n", slice, mip);
                                 return 1;
                             }
                             else
@@ -3426,24 +3449,24 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = ComputeMSE(*img1, *img2, mse, mseV);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"Failed comparing images at slice %3Iu, mip %3Iu (%08X)\n", slice, mip, hr);
+                                    wprintf(L"Failed comparing images at slice %3zu, mip %3zu (%08X)\n", slice, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 
                                 min_mse = std::min(min_mse, mse);
                                 max_mse = std::max(max_mse, mse);
-                                sum_mse += mse;
+                                sum_mse += double(mse);
 
                                 for (size_t j = 0; j < 4; ++j)
                                 {
                                     min_mseV[j] = std::min(min_mseV[j], mseV[j]);
                                     max_mseV[j] = std::max(max_mseV[j], mseV[j]);
-                                    sum_mseV[j] += mseV[j];
+                                    sum_mseV[j] += double(mseV[j]);
                                 }
 
                                 ++total_images;
 
-                                wprintf(L"[%3Iu,%3Iu]: %f (%f %f %f %f) PSNR %f dB\n", mip, slice, mse, mseV[0], mseV[1], mseV[2], mseV[3],
+                                wprintf(L"[%3zu,%3zu]: %f (%f %f %f %f) PSNR %f dB\n", mip, slice, mse, mseV[0], mseV[1], mseV[2], mseV[3],
                                     10.0 * log10(3.0 / (double(mseV[0]) + double(mseV[1]) + double(mseV[2]))));
                             }
                         }
@@ -3454,7 +3477,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 }
                 else
                 {
-                    wprintf(L"Results by item (%3Iu) and mip (%3Iu)\n\n", info1.arraySize, info1.mipLevels);
+                    wprintf(L"Results by item (%3zu) and mip (%3zu)\n\n", info1.arraySize, info1.mipLevels);
 
                     for (size_t item = 0; item < info1.arraySize; ++item)
                     {
@@ -3468,7 +3491,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 || img1->height != img2->height
                                 || img1->width != img2->width)
                             {
-                                wprintf(L"ERROR: Unexpected mismatch at item %3Iu, mip %3Iu\n", item, mip);
+                                wprintf(L"ERROR: Unexpected mismatch at item %3zu, mip %3zu\n", item, mip);
                                 return 1;
                             }
                             else
@@ -3477,24 +3500,24 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = ComputeMSE(*img1, *img2, mse, mseV);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"Failed comparing images at item %3Iu, mip %3Iu (%08X)\n", item, mip, hr);
+                                    wprintf(L"Failed comparing images at item %3zu, mip %3zu (%08X)\n", item, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 
                                 min_mse = std::min(min_mse, mse);
                                 max_mse = std::max(max_mse, mse);
-                                sum_mse += mse;
+                                sum_mse += double(mse);
 
                                 for (size_t j = 0; j < 4; ++j)
                                 {
                                     min_mseV[j] = std::min(min_mseV[j], mseV[j]);
                                     max_mseV[j] = std::max(max_mseV[j], mseV[j]);
-                                    sum_mseV[j] += mseV[j];
+                                    sum_mseV[j] += double(mseV[j]);
                                 }
 
                                 ++total_images;
 
-                                wprintf(L"[%3Iu,%3Iu]: %f (%f %f %f %f) PSNR %f dB\n", item, mip, mse, mseV[0], mseV[1], mseV[2], mseV[3],
+                                wprintf(L"[%3zu,%3zu]: %f (%f %f %f %f) PSNR %f dB\n", item, mip, mse, mseV[0], mseV[1], mseV[2], mseV[3],
                                     10.0 * log10(3.0 / (double(mseV[0]) + double(mseV[1]) + double(mseV[2]))));
                             }
                         }
@@ -3508,7 +3531,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                         10.0 * log10(3.0 / (double(min_mseV[0]) + double(min_mseV[1]) + double(min_mseV[2]))));
                     double total_mseV0 = sum_mseV[0] / double(total_images);
                     double total_mseV1 = sum_mseV[1] / double(total_images);
-                    double total_mseV2 = max_mseV[2] / double(total_images);
+                    double total_mseV2 = sum_mseV[2] / double(total_images);
                     wprintf(L"    Average MSE: %f (%f %f %f %f) PSNR %f dB\n", sum_mse / double(total_images),
                         total_mseV0,
                         total_mseV1,
@@ -3521,7 +3544,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             }
         }
         break;
-    
+
     default:
         for (auto pConv = conversion.cbegin(); pConv != conversion.cend(); ++pConv)
         {
@@ -3537,7 +3560,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadImage(pConv->szSrc, dwOptions, dwFilter, info, image);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", hr);
+                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                 return 1;
             }
 
@@ -3558,17 +3581,17 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 switch (info.dimension)
                 {
                 case TEX_DIMENSION_TEXTURE1D:
-                    wprintf((info.arraySize > 1) ? L"1DArray\n" : L"1D\n");
+                    wprintf(L"%ls", (info.arraySize > 1) ? L"1DArray\n" : L"1D\n");
                     break;
 
                 case TEX_DIMENSION_TEXTURE2D:
                     if (info.IsCubemap())
                     {
-                        wprintf((info.arraySize > 6) ? L"CubeArray\n" : L"Cube\n");
+                        wprintf(L"%ls", (info.arraySize > 6) ? L"CubeArray\n" : L"Cube\n");
                     }
                     else
                     {
-                        wprintf((info.arraySize > 1) ? L"2DArray\n" : L"2D\n");
+                        wprintf(L"%ls", (info.arraySize > 1) ? L"2DArray\n" : L"2D\n");
                     }
                     break;
 
@@ -3589,7 +3612,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 case TEX_ALPHA_MODE_STRAIGHT:
                     wprintf(L"Straight");
                     break;
-                default:
+                case TEX_ALPHA_MODE_CUSTOM:
+                    wprintf(L"Custom");
+                    break;
+                case TEX_ALPHA_MODE_UNKNOWN:
                     wprintf(L"Unknown");
                     break;
                 }
@@ -3617,7 +3643,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                 if (info.depth > 1)
                 {
-                    wprintf(L"Writing by mip (%3Iu) and slice (%3Iu)...", info.mipLevels, info.depth);
+                    wprintf(L"Writing by mip (%3zu) and slice (%3zu)...", info.mipLevels, info.depth);
 
                     size_t depth = info.depth;
                     for (size_t mip = 0; mip < info.mipLevels; ++mip)
@@ -3628,7 +3654,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at slice %3Iu, mip %3Iu\n", slice, mip);
+                                wprintf(L"ERROR: Unexpected error at slice %3zu, mip %3zu\n", slice, mip);
                                 return 1;
                             }
                             else
@@ -3636,11 +3662,11 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 wchar_t subFname[_MAX_FNAME];
                                 if (info.mipLevels > 1)
                                 {
-                                    swprintf_s(subFname, L"%ls_slice%03Iu_mip%03Iu", fname, slice, mip);
+                                    swprintf_s(subFname, L"%ls_slice%03zu_mip%03zu", fname, slice, mip);
                                 }
                                 else
                                 {
-                                    swprintf_s(subFname, L"%ls_slice%03Iu", fname, slice);
+                                    swprintf_s(subFname, L"%ls_slice%03zu", fname, slice);
                                 }
 
                                 _wmakepath_s(szOutputFile, nullptr, nullptr, subFname, ext);
@@ -3648,7 +3674,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = SaveImage(img, szOutputFile, fileType);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L" FAILED (%x)\n", hr);
+                                    wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                                     return 1;
                                 }
                             }
@@ -3661,7 +3687,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 }
                 else
                 {
-                    wprintf(L"Writing by item (%3Iu) and mip (%3Iu)...", info.arraySize, info.mipLevels);
+                    wprintf(L"Writing by item (%3zu) and mip (%3zu)...", info.arraySize, info.mipLevels);
 
                     for (size_t item = 0; item < info.arraySize; ++item)
                     {
@@ -3671,7 +3697,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at item %3Iu, mip %3Iu\n", item, mip);
+                                wprintf(L"ERROR: Unexpected error at item %3zu, mip %3zu\n", item, mip);
                                 return 1;
                             }
                             else
@@ -3679,11 +3705,11 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 wchar_t subFname[_MAX_FNAME];
                                 if (info.mipLevels > 1)
                                 {
-                                    swprintf_s(subFname, L"%ls_item%03Iu_mip%03Iu", fname, item, mip);
+                                    swprintf_s(subFname, L"%ls_item%03zu_mip%03zu", fname, item, mip);
                                 }
                                 else
                                 {
-                                    swprintf_s(subFname, L"%ls_item%03Iu", fname, item);
+                                    swprintf_s(subFname, L"%ls_item%03zu", fname, item);
                                 }
 
                                 _wmakepath_s(szOutputFile, nullptr, nullptr, subFname, ext);
@@ -3691,7 +3717,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = SaveImage(img, szOutputFile, fileType);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L" FAILED (%x)\n", hr);
+                                    wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
                                     return 1;
                                 }
                             }
@@ -3710,8 +3736,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     return 1;
                 }
 
-                if (pixelx >= (int)info.width
-                    || pixely >= (int)info.height)
+                if (pixelx >= int(info.width)
+                    || pixely >= int(info.height))
                 {
                     wprintf(L"WARNING: Specified pixel location (%d x %d) is out of range for image (%zu x %zu)\n", pixelx, pixely, info.width, info.height);
                     continue;
@@ -3723,7 +3749,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                 if (info.depth > 1)
                 {
-                    wprintf(L"Results by mip (%3Iu) and slice (%3Iu)\n", info.mipLevels, info.depth);
+                    wprintf(L"Results by mip (%3zu) and slice (%3zu)\n", info.mipLevels, info.depth);
 
                     size_t depth = info.depth;
                     for (size_t mip = 0; mip < info.mipLevels; ++mip)
@@ -3734,17 +3760,17 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at slice %3Iu, mip %3Iu\n", slice, mip);
+                                wprintf(L"ERROR: Unexpected error at slice %3zu, mip %3zu\n", slice, mip);
                                 return 1;
                             }
                             else
                             {
-                                wprintf(L"\n[%3Iu, %3Iu]:\n", mip, slice);
+                                wprintf(L"\n[%3zu, %3zu]:\n", mip, slice);
 
                                 hr = DumpBCImage(*img, pixelx, pixely);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed dumping image at slice %3Iu, mip %3Iu (%08X)\n", slice, mip, hr);
+                                    wprintf(L"ERROR: Failed dumping image at slice %3zu, mip %3zu (%08X)\n", slice, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
                             }
@@ -3762,7 +3788,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 }
                 else
                 {
-                    wprintf(L"Results by item (%3Iu) and mip (%3Iu)\n", info.arraySize, info.mipLevels);
+                    wprintf(L"Results by item (%3zu) and mip (%3zu)\n", info.arraySize, info.mipLevels);
 
                     for (size_t item = 0; item < info.arraySize; ++item)
                     {
@@ -3775,19 +3801,19 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at item %3Iu, mip %3Iu\n", item, mip);
+                                wprintf(L"ERROR: Unexpected error at item %3zu, mip %3zu\n", item, mip);
                                 return 1;
                             }
                             else
                             {
                                 if (image->GetImageCount() > 1)
                                 {
-                                    wprintf(L"\n[%3Iu, %3Iu]:\n", item, mip);
+                                    wprintf(L"\n[%3zu, %3zu]:\n", item, mip);
                                 }
                                 hr = DumpBCImage(*img, tpixelx, tpixely);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed dumping image at item %3Iu, mip %3Iu (%08X)\n", item, mip, hr);
+                                    wprintf(L"ERROR: Failed dumping image at item %3zu, mip %3zu (%08X)\n", item, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
                             }
@@ -3820,7 +3846,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     hr = ConvertToSinglePlane(img, nimg, info, *timage);
                     if (FAILED(hr))
                     {
-                        wprintf(L" FAILED [converttosingleplane] (%x)\n", hr);
+                        wprintf(L" FAILED [converttosingleplane] (%x)\n", static_cast<unsigned int>(hr));
                         continue;
                     }
 
@@ -3841,7 +3867,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                 if (info.depth > 1)
                 {
-                    wprintf(L"Results by mip (%3Iu) and slice (%3Iu)\n\n", info.mipLevels, info.depth);
+                    wprintf(L"Results by mip (%3zu) and slice (%3zu)\n\n", info.mipLevels, info.depth);
 
                     size_t depth = info.depth;
                     for (size_t mip = 0; mip < info.mipLevels; ++mip)
@@ -3852,7 +3878,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at slice %3Iu, mip %3Iu\n", slice, mip);
+                                wprintf(L"ERROR: Unexpected error at slice %3zu, mip %3zu\n", slice, mip);
                                 return 1;
                             }
                             else
@@ -3861,11 +3887,11 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = Analyze(*img, data);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed analyzing image at slice %3Iu, mip %3Iu (%08X)\n", slice, mip, hr);
+                                    wprintf(L"ERROR: Failed analyzing image at slice %3zu, mip %3zu (%08X)\n", slice, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 
-                                wprintf(L"Result slice %3Iu, mip %3Iu:\n", slice, mip);
+                                wprintf(L"Result slice %3zu, mip %3zu:\n", slice, mip);
                                 data.Print();
                             }
 
@@ -3875,7 +3901,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = AnalyzeBC(*img, data);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed analyzing BC image at slice %3Iu, mip %3Iu (%08X)\n", slice, mip, hr);
+                                    wprintf(L"ERROR: Failed analyzing BC image at slice %3zu, mip %3zu (%08X)\n", slice, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 
@@ -3890,7 +3916,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 }
                 else
                 {
-                    wprintf(L"Results by item (%3Iu) and mip (%3Iu)\n\n", info.arraySize, info.mipLevels);
+                    wprintf(L"Results by item (%3zu) and mip (%3zu)\n\n", info.arraySize, info.mipLevels);
 
                     for (size_t item = 0; item < info.arraySize; ++item)
                     {
@@ -3900,7 +3926,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
                             if (!img)
                             {
-                                wprintf(L"ERROR: Unexpected error at item %3Iu, mip %3Iu\n", item, mip);
+                                wprintf(L"ERROR: Unexpected error at item %3zu, mip %3zu\n", item, mip);
                                 return 1;
                             }
                             else
@@ -3909,13 +3935,13 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = Analyze(*img, data);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed analyzing image at item %3Iu, mip %3Iu (%08X)\n", item, mip, hr);
+                                    wprintf(L"ERROR: Failed analyzing image at item %3zu, mip %3zu (%08X)\n", item, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 
                                 if (image->GetImageCount() > 1)
                                 {
-                                    wprintf(L"Result item %3Iu, mip %3Iu:\n", item, mip);
+                                    wprintf(L"Result item %3zu, mip %3zu:\n", item, mip);
                                 }
                                 data.Print();
                             }
@@ -3926,7 +3952,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                                 hr = AnalyzeBC(*img, data);
                                 if (FAILED(hr))
                                 {
-                                    wprintf(L"ERROR: Failed analyzing BC image at item %3Iu, mip %3Iu (%08X)\n", item, mip, hr);
+                                    wprintf(L"ERROR: Failed analyzing BC image at item %3zu, mip %3zu (%08X)\n", item, mip, static_cast<unsigned int>(hr));
                                     return 1;
                                 }
 

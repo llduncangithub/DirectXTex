@@ -9,13 +9,13 @@
 // http://go.microsoft.com/fwlink/?LinkId=248926
 //-------------------------------------------------------------------------------------
 
-#include "directxtexp.h"
+#include "DirectXTexP.h"
 
 namespace DirectX
 {
-    extern bool _CalculateMipLevels(_In_ size_t width, _In_ size_t height, _Inout_ size_t& mipLevels);
-    extern bool _CalculateMipLevels3D(_In_ size_t width, _In_ size_t height, _In_ size_t depth, _Inout_ size_t& mipLevels);
-    extern bool _IsAlphaAllOpaqueBC(_In_ const Image& cImage);
+    extern bool _CalculateMipLevels(_In_ size_t width, _In_ size_t height, _Inout_ size_t& mipLevels) noexcept;
+    extern bool _CalculateMipLevels3D(_In_ size_t width, _In_ size_t height, _In_ size_t depth, _Inout_ size_t& mipLevels) noexcept;
+    extern bool _IsAlphaAllOpaqueBC(_In_ const Image& cImage) noexcept;
 }
 
 using namespace DirectX;
@@ -24,18 +24,18 @@ using namespace DirectX;
 // Determines number of image array entries and pixel size
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-void DirectX::_DetermineImageArray(
+bool DirectX::_DetermineImageArray(
     const TexMetadata& metadata,
     DWORD cpFlags,
     size_t& nImages,
-    size_t& pixelSize)
+    size_t& pixelSize) noexcept
 {
     assert(metadata.width > 0 && metadata.height > 0 && metadata.depth > 0);
     assert(metadata.arraySize > 0);
     assert(metadata.mipLevels > 0);
 
-    size_t _pixelSize = 0;
-    size_t _nimages = 0;
+    uint64_t totalPixelSize = 0;
+    size_t nimages = 0;
 
     switch (metadata.dimension)
     {
@@ -49,10 +49,14 @@ void DirectX::_DetermineImageArray(
             for (size_t level = 0; level < metadata.mipLevels; ++level)
             {
                 size_t rowPitch, slicePitch;
-                ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags);
+                if (FAILED(ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags)))
+                {
+                    nImages = pixelSize = 0;
+                    return false;
+                }
 
-                _pixelSize += slicePitch;
-                ++_nimages;
+                totalPixelSize += uint64_t(slicePitch);
+                ++nimages;
 
                 if (h > 1)
                     h >>= 1;
@@ -72,12 +76,16 @@ void DirectX::_DetermineImageArray(
         for (size_t level = 0; level < metadata.mipLevels; ++level)
         {
             size_t rowPitch, slicePitch;
-            ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags);
+            if (FAILED(ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags)))
+            {
+                nImages = pixelSize = 0;
+                return false;
+            }
 
             for (size_t slice = 0; slice < d; ++slice)
             {
-                _pixelSize += slicePitch;
-                ++_nimages;
+                totalPixelSize += uint64_t(slicePitch);
+                ++nimages;
             }
 
             if (h > 1)
@@ -93,12 +101,25 @@ void DirectX::_DetermineImageArray(
     break;
 
     default:
-        assert(false);
-        break;
+        nImages = pixelSize = 0;
+        return false;
     }
 
-    nImages = _nimages;
-    pixelSize = _pixelSize;
+#if defined(_M_IX86) || defined(_M_ARM) || defined(_M_HYBRID_X86_ARM64)
+    static_assert(sizeof(size_t) == 4, "Not a 32-bit platform!");
+    if (totalPixelSize > UINT32_MAX)
+    {
+        nImages = pixelSize = 0;
+        return false;
+    }
+#else
+    static_assert(sizeof(size_t) == 8, "Not a 64-bit platform!");
+#endif
+
+    nImages = nimages;
+    pixelSize = static_cast<size_t>(totalPixelSize);
+
+    return true;
 }
 
 
@@ -112,7 +133,7 @@ bool DirectX::_SetupImageArray(
     const TexMetadata& metadata,
     DWORD cpFlags,
     Image* images,
-    size_t nImages)
+    size_t nImages) noexcept
 {
     assert(pMemory);
     assert(pixelSize > 0);
@@ -147,7 +168,8 @@ bool DirectX::_SetupImageArray(
                 }
 
                 size_t rowPitch, slicePitch;
-                ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags);
+                if (FAILED(ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags)))
+                    return false;
 
                 images[index].width = w;
                 images[index].height = h;
@@ -186,7 +208,8 @@ bool DirectX::_SetupImageArray(
         for (size_t level = 0; level < metadata.mipLevels; ++level)
         {
             size_t rowPitch, slicePitch;
-            ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags);
+            if (FAILED(ComputePitch(metadata.format, w, h, rowPitch, slicePitch, cpFlags)))
+                return false;
 
             for (size_t slice = 0; slice < d; ++slice)
             {
@@ -259,7 +282,7 @@ ScratchImage& ScratchImage::operator= (ScratchImage&& moveFrom) noexcept
 // Methods
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-HRESULT ScratchImage::Initialize(const TexMetadata& mdata, DWORD flags)
+HRESULT ScratchImage::Initialize(const TexMetadata& mdata, DWORD flags) noexcept
 {
     if (!IsValid(mdata.format))
         return E_INVALIDARG;
@@ -318,7 +341,8 @@ HRESULT ScratchImage::Initialize(const TexMetadata& mdata, DWORD flags)
     m_metadata.dimension = mdata.dimension;
 
     size_t pixelSize, nimages;
-    _DetermineImageArray(m_metadata, flags, nimages, pixelSize);
+    if (!_DetermineImageArray(m_metadata, flags, nimages, pixelSize))
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
 
     m_image = new (std::nothrow) Image[nimages];
     if (!m_image)
@@ -344,7 +368,7 @@ HRESULT ScratchImage::Initialize(const TexMetadata& mdata, DWORD flags)
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::Initialize1D(DXGI_FORMAT fmt, size_t length, size_t arraySize, size_t mipLevels, DWORD flags)
+HRESULT ScratchImage::Initialize1D(DXGI_FORMAT fmt, size_t length, size_t arraySize, size_t mipLevels, DWORD flags) noexcept
 {
     if (!length || !arraySize)
         return E_INVALIDARG;
@@ -360,7 +384,7 @@ HRESULT ScratchImage::Initialize1D(DXGI_FORMAT fmt, size_t length, size_t arrayS
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::Initialize2D(DXGI_FORMAT fmt, size_t width, size_t height, size_t arraySize, size_t mipLevels, DWORD flags)
+HRESULT ScratchImage::Initialize2D(DXGI_FORMAT fmt, size_t width, size_t height, size_t arraySize, size_t mipLevels, DWORD flags) noexcept
 {
     if (!IsValid(fmt) || !width || !height || !arraySize)
         return E_INVALIDARG;
@@ -384,7 +408,8 @@ HRESULT ScratchImage::Initialize2D(DXGI_FORMAT fmt, size_t width, size_t height,
     m_metadata.dimension = TEX_DIMENSION_TEXTURE2D;
 
     size_t pixelSize, nimages;
-    _DetermineImageArray(m_metadata, flags, nimages, pixelSize);
+    if (!_DetermineImageArray(m_metadata, flags, nimages, pixelSize))
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
 
     m_image = new (std::nothrow) Image[nimages];
     if (!m_image)
@@ -410,7 +435,7 @@ HRESULT ScratchImage::Initialize2D(DXGI_FORMAT fmt, size_t width, size_t height,
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::Initialize3D(DXGI_FORMAT fmt, size_t width, size_t height, size_t depth, size_t mipLevels, DWORD flags)
+HRESULT ScratchImage::Initialize3D(DXGI_FORMAT fmt, size_t width, size_t height, size_t depth, size_t mipLevels, DWORD flags) noexcept
 {
     if (!IsValid(fmt) || !width || !height || !depth)
         return E_INVALIDARG;
@@ -434,7 +459,8 @@ HRESULT ScratchImage::Initialize3D(DXGI_FORMAT fmt, size_t width, size_t height,
     m_metadata.dimension = TEX_DIMENSION_TEXTURE3D;
 
     size_t pixelSize, nimages;
-    _DetermineImageArray(m_metadata, flags, nimages, pixelSize);
+    if (!_DetermineImageArray(m_metadata, flags, nimages, pixelSize))
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
 
     m_image = new (std::nothrow) Image[nimages];
     if (!m_image)
@@ -463,7 +489,7 @@ HRESULT ScratchImage::Initialize3D(DXGI_FORMAT fmt, size_t width, size_t height,
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::InitializeCube(DXGI_FORMAT fmt, size_t width, size_t height, size_t nCubes, size_t mipLevels, DWORD flags)
+HRESULT ScratchImage::InitializeCube(DXGI_FORMAT fmt, size_t width, size_t height, size_t nCubes, size_t mipLevels, DWORD flags) noexcept
 {
     if (!width || !height || !nCubes)
         return E_INVALIDARG;
@@ -479,7 +505,7 @@ HRESULT ScratchImage::InitializeCube(DXGI_FORMAT fmt, size_t width, size_t heigh
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::InitializeFromImage(const Image& srcImage, bool allow1D, DWORD flags)
+HRESULT ScratchImage::InitializeFromImage(const Image& srcImage, bool allow1D, DWORD flags) noexcept
 {
     HRESULT hr = (srcImage.height > 1 || !allow1D)
         ? Initialize2D(srcImage.format, srcImage.width, srcImage.height, 1, 1, flags)
@@ -516,7 +542,7 @@ HRESULT ScratchImage::InitializeFromImage(const Image& srcImage, bool allow1D, D
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::InitializeArrayFromImages(const Image* images, size_t nImages, bool allow1D, DWORD flags)
+HRESULT ScratchImage::InitializeArrayFromImages(const Image* images, size_t nImages, bool allow1D, DWORD flags) noexcept
 {
     if (!images || !nImages)
         return E_INVALIDARG;
@@ -576,7 +602,7 @@ HRESULT ScratchImage::InitializeArrayFromImages(const Image* images, size_t nIma
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::InitializeCubeFromImages(const Image* images, size_t nImages, DWORD flags)
+HRESULT ScratchImage::InitializeCubeFromImages(const Image* images, size_t nImages, DWORD flags) noexcept
 {
     if (!images || !nImages)
         return E_INVALIDARG;
@@ -595,7 +621,7 @@ HRESULT ScratchImage::InitializeCubeFromImages(const Image* images, size_t nImag
 }
 
 _Use_decl_annotations_
-HRESULT ScratchImage::Initialize3DFromImages(const Image* images, size_t depth, DWORD flags)
+HRESULT ScratchImage::Initialize3DFromImages(const Image* images, size_t depth, DWORD flags) noexcept
 {
     if (!images || !depth)
         return E_INVALIDARG;
@@ -651,7 +677,7 @@ HRESULT ScratchImage::Initialize3DFromImages(const Image* images, size_t depth, 
     return S_OK;
 }
 
-void ScratchImage::Release()
+void ScratchImage::Release() noexcept
 {
     m_nimages = 0;
     m_size = 0;
@@ -672,7 +698,7 @@ void ScratchImage::Release()
 }
 
 _Use_decl_annotations_
-bool ScratchImage::OverrideFormat(DXGI_FORMAT f)
+bool ScratchImage::OverrideFormat(DXGI_FORMAT f) noexcept
 {
     if (!m_image)
         return false;
@@ -691,7 +717,7 @@ bool ScratchImage::OverrideFormat(DXGI_FORMAT f)
 }
 
 _Use_decl_annotations_
-const Image* ScratchImage::GetImage(size_t mip, size_t item, size_t slice) const
+const Image* ScratchImage::GetImage(size_t mip, size_t item, size_t slice) const noexcept
 {
     if (mip >= m_metadata.mipLevels)
         return nullptr;
@@ -742,7 +768,7 @@ const Image* ScratchImage::GetImage(size_t mip, size_t item, size_t slice) const
     return &m_image[index];
 }
 
-bool ScratchImage::IsAlphaAllOpaque() const
+bool ScratchImage::IsAlphaAllOpaque() const noexcept
 {
     if (!m_image)
         return false;
@@ -764,7 +790,7 @@ bool ScratchImage::IsAlphaAllOpaque() const
         if (!scanline)
             return false;
 
-        static const XMVECTORF32 threshold = { { { 0.99f, 0.99f, 0.99f, 0.99f } } };
+        static const XMVECTORF32 threshold = { { { 0.997f, 0.997f, 0.997f, 0.997f } } };
 
         for (size_t index = 0; index < m_nimages; ++index)
         {
